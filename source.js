@@ -4,11 +4,50 @@
 // @version      2026-10-07
 // @description  Client for drednot.io
 // @author       Dreder
-// @match        https://drednot.io/
-// @match        https://test.drednot.io/
+// @match        https://drednot.io/*
+// @match        https://test.drednot.io/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=drednot.io
+// @downloadURL  https://raw.githubusercontent.com/Dredarker/dreder-client/refs/heads/main/source.js
+// @updateURL    https://raw.githubusercontent.com/Dredarker/dreder-client/refs/heads/main/source.js
 // @grant        none
 // ==/UserScript==
+
+drederClientDebug(`STAGE 1: Initialing client...`);
+
+// JS BRIDGE
+drederClientDebug("Loading keyboard controller...")
+function sendKey(key, pressed) {
+    window.postMessage({
+        source: "tm-drednot-keyboard",
+        type: "KEY",
+        key: String(key),
+        pressed: Boolean(pressed)
+    }, "*");
+}
+
+function pressKey(key) {
+    sendKey(key, true);
+}
+
+function releaseKey(key) {
+    sendKey(key, false);
+}
+
+function tapKey(key, duration = 100) {
+    pressKey(key);
+    setTimeout(() => {
+        releaseKey(key);
+    }, duration);
+}
+
+// Available in the userscript's execution context.
+globalThis.drednotKeyboard = {
+    pressKey,
+    releaseKey,
+    tapKey
+};
+
+drederClientDebug(`Controller loaded...`);
 
 // CSS
 const chatInput2CSS = `
@@ -21,6 +60,7 @@ const chatInput2CSS = `
     font-size: 16pt;
 `;
 const motdCotext2CSS = `
+    font-size: 10px;
     max-width: 400px;
     max-height: 300px;
     overflow-x: auto;
@@ -47,7 +87,7 @@ document.querySelector("#motd-content").prepend(motdCotext2);
 
 let teamsearch = document.querySelector("#team_players > input");
 
-drederClientDebug(`STAGE 1: Initialing client...`);
+document.querySelector("#top-bar > h1").innerHTML = "Dreder's Client";
 
 motdCotext2.style = motdCotext2CSS;
 motdCotext.style = "display: none";
@@ -79,6 +119,7 @@ var lastJoinedUser;
 let rejoinOnInvite = false;
 var oldonlineships = {};
 var onlineships = getShips(true);
+let DCusers = [];
 
 // Jukebox
 let jukeboxPlayer = null;
@@ -376,6 +417,17 @@ const facts = [
 	"а вы знали что в клиенте дредера есть Jukebox?",
 ];
 
+drederClientDebug(`Loading laskovie slova...`);
+const laskovieSlova = [
+    "Слушаюсь, ",
+    "Да, я слушаюсь вас, ",
+    "Чем помочь, ",
+    "Могу помочь, ",
+    "Что у вас, ",
+    "Что там, ",
+    "Что надо, ",
+];
+
 const prettyenglishsymbols = "ᴀʙᴄᴅᴇғɢʜɪᴊᴋʟᴍɴᴏᴘǫʀsᴛᴜᴠᴡxʏᴢ";
 const englishsymbols = "abcdefghijklmnopqrstuvwxyz";
 const russiantranskriptsymbols = "аб☺дефгхижклмнопкрстювдкуз";
@@ -389,7 +441,7 @@ for (let i of mychatContent.children) {
 }
 */
 
-setInterval(() => {if (sendingMessages.length > 0) realSendChat(sendingMessages.shift())}, 1200);
+setInterval(() => {if (sendingMessages.length > 0) realsendChat(sendingMessages.shift())}, 1200);
 
 drederClientDebug(`Starting ships anounser...`);
 setInterval(async () => {
@@ -440,6 +492,7 @@ const bot = {
         //"no-link",
         //"action-on-teamlog",
         "/home-on-zone-switch",
+        "movable-by-commands",
     ],
     exam: "",
     examhowmanyoperations: 0,
@@ -456,6 +509,8 @@ const bot = {
     polltimer: null,
 
     ai_answering: false,
+
+    hears: "",
 };
 const constVarsForStaff = [
     "isStaff",
@@ -479,7 +534,7 @@ addEventListener("keydown", () => {
         case "End":
             bot.active = !bot.active;
             writeChat(`${DREDERCLIENT_PREFIX} Bot ${bot.active ? "":"de"}activated.`, 4000);
-            sendChat(bot.active ? "Bot activated. Say \"!help\" to get commands" : "Bot deactivated");
+            sendChat("[BOT] "+bot.active ? "Bot activated. Say \"!help\" to get commands" : "Bot deactivated");
             sessionStorage.setItem("runAsBot", bot.active);
             if (bot.active) start = new Date();
             document.getElementById("team_manager_button").click();
@@ -499,12 +554,12 @@ addEventListener("keydown", () => {
                             bot.exam += "*/".includes(operation) && i!=0 ? (e==3 ? e-1 : e) : Math.round(Math.random()*98+1);
                         }
                         bot.examanswer = eval(bot.exam);
-                        sendChat(bot.exam+"=?");
+                        sendChat("[BOT] "+bot.exam+"=?");
                     } else if (bot.perms.includes("viktorina")) {
                         startViktorina();
                     } else {
                         for (let playerNickname of getPlayers()) {databaseFunc.add(playerNickname,"money",1)}
-                        sendChat(facts[Math.floor(Math.random()*facts.length)]);
+                        sendChat("[BOT] "+facts[Math.floor(Math.random()*facts.length)]);
                     }
                 }, 4*60*1000);
             } else {
@@ -538,7 +593,7 @@ addEventListener("keydown", () => {
 });
 async function startViktorina() {
     bot.viktorinaanswer = null;
-    sendChat("Time to viktorina! (be ready)");
+    sendChat("[BOT] "+"Time to viktorina! (be ready)");
 
     const res = await fetch("https://opentdb.com/api.php?amount=1&type=multiple");
     const data = await res.json();
@@ -559,13 +614,13 @@ async function startViktorina() {
 
     bot.viktorinatimer = setTimeout(() => {
         bot.viktorinaanswer = "";
-        sendChat("No answer got, viktorina is ended.");
+        sendChat("[BOT] "+"No answer got, viktorina is ended.");
     }, time*1000+3500);
 
     let displayanswers = bot.viktorinawronganswers.concat(bot.viktorinaanswer).sort(compareRandom);
-    sendChat("QUESTION: "+data.results[0].question);
-    sendChat(`Avaliables answers: ${displayanswers.join(", ")}`);
-    sendChat(`Gives ${time} seconds to give answer.`)
+    sendChat("[BOT] "+"QUESTION: "+data.results[0].question);
+    sendChat("[BOT] "+`Avaliables answers: ${displayanswers.join(", ")}`);
+    sendChat("[BOT] "+`Gives ${time} seconds to give answer.`)
 }
 
 
@@ -611,7 +666,7 @@ function sliceUsernameAndGetVisualRank(userWithRank) {
 }
 
 function cancelVoting() {
-    sendChat(`Voting to ban ${bot.vote.who} is extreno ended`);
+    sendChat("[BOT] "+`Voting to ban ${bot.vote.who} is extreno ended`);
     bot.vote = {
         who: "",
         yes: [],
@@ -684,7 +739,7 @@ let chatObserver = new MutationObserver(async (mutationRecords) => {
     }
     if (false && executor == "Warning" && "A  Safety Anchor was destroyed!") {
         for (let i = 0; i<15; i++) {
-            sendChat("ВООООООООООООР")
+            sendChat("[BOT] "+"ВООООООООООООР")
         }
     }
     if (text.startsWith("!")) {
@@ -717,21 +772,21 @@ let chatObserver = new MutationObserver(async (mutationRecords) => {
             } else {
                 msg = `Wrong, use !help (1 to ${helpBook.length})`;
             }
-            sendChat(msg);
+            sendChat("[BOT] "+msg);
         } else if (command === "!voteban" && bot.perms.includes("voteban")) {
         	if (!myPlayerIsCap()) {
-        		sendChat("This command can't be ran by not having cap");
+        		sendChat("[BOT] "+"This command can't be ran by not having cap");
         		return;
         	}
             let arg = text.slice(9,39);
             if (bot.vote.who === "") {
                 if (arg === executor || arg === myUsername) {
-                    sendChat(arg === executor ? "You can't voteban self" : "Nice try :)");
+                    sendChat("[BOT] "+arg === executor ? "You can't voteban self" : "Nice try :)");
                 } else {
                 	let foundedPlayer = null;
         			for (let playerNickname of getPlayers()) {if (playerNickname.startsWith(arg)) foundedPlayer = playerNickname}
         			if (!foundedPlayer) {
-        				sendChat("There are no player with nickname "+arg)
+        				sendChat("[BOT] "+"There are no player with nickname "+arg)
         				return;
         			}
         			arg = foundedPlayer;
@@ -741,37 +796,37 @@ let chatObserver = new MutationObserver(async (mutationRecords) => {
                     if (!targetIsStaff && !targetIsVip) {
                         bot.vote.yes = [executor]; bot.vote.no = [];
                         bot.vote.who = arg;
-                        sendChat(`Poll to ban ${bot.vote.who} is started!
+                        sendChat("[BOT] "+`Poll to ban ${bot.vote.who} is started!
                         Say '!voteban y' if agree or '!voteban n', if disagree.
                         You have 60 seconds`);
                         bot.vote.timer = setTimeout(function() {
                             if (votes >= 3) {
-                                sendChat(`/ban ${bot.vote.who}`);
-                                sendChat(`${bot.vote.who} was successfully banned from ship`);
+                                sendChat("[BOT] "+`/ban ${bot.vote.who}`);
+                                sendChat("[BOT] "+`${bot.vote.who} was successfully banned from ship`);
                                 bot.vote.who = "";
                             } else {
-                                sendChat(`Not enough ${3-votes} votes to ban ${bot.vote.who}, voting is end`);
+                                sendChat("[BOT] "+`Not enough ${3-votes} votes to ban ${bot.vote.who}, voting is end`);
                                 bot.vote.who = "";
                             }
                         }, 60000);
                     } else {
-                        sendChat("You can't start poll to ban opposite staff/vip!");
+                        sendChat("[BOT] "+"You can't start poll to ban opposite staff/vip!");
                     }
                 }
-            } else if (executor == bot.vote.who) sendChat("You can't vote to ban while votes opposite you");
+            } else if (executor == bot.vote.who) sendChat("[BOT] "+"You can't vote to ban while votes opposite you");
             else {
                 let isVoted = bot.vote.yes.includes(executor) || bot.vote.no.includes(executor);
-                if (isVoted) sendChat(`You are already voted to ban ${bot.vote.who}!`);
+                if (isVoted) sendChat("[BOT] "+`You are already voted to ban ${bot.vote.who}!`);
                 else {
                     if (arg === "y") {
                         bot.vote.yes.push(executor);
                         votes = bot.vote.yes.length - bot.vote.no.length;
-                        sendChat(`${executor} is agree to ban (${votes}/3)${votes >= 3 ? ". Death is near! :))))" : votes < 0 ? `. I think, chance to ban ${bot.vote.who} equals to 0...` : ""}`);
+                        sendChat("[BOT] "+`${executor} is agree to ban (${votes}/3)${votes >= 3 ? ". Death is near! :))))" : votes < 0 ? `. I think, chance to ban ${bot.vote.who} equals to 0...` : ""}`);
                     } else if (arg === "n") {
                         bot.vote.no.push(executor);
                         votes = bot.vote.yes.length - bot.vote.no.length;
-                        sendChat(`${executor} is disagree to ban (${votes}/3)${votes < 0 ? ". Bruh, we bug the bot x-x" : votes == 2 ? ". NO NO NO NO NO" : ""}`);
-                    } else sendChat("Vote pls!");
+                        sendChat("[BOT] "+`${executor} is disagree to ban (${votes}/3)${votes < 0 ? ". Bruh, we bug the bot x-x" : votes == 2 ? ". NO NO NO NO NO" : ""}`);
+                    } else sendChat("[BOT] "+"Vote pls!");
                 }
             }
         } else if (command === "!kick") {
@@ -779,23 +834,23 @@ let chatObserver = new MutationObserver(async (mutationRecords) => {
             let foundedPlayer = null;
         	for (let playerNickname of getPlayers()) {if (playerNickname.startsWith(arg)) foundedPlayer = playerNickname}
         	if (!foundedPlayer) {
-        		sendChat("There are no player with nickname "+arg)
+        		sendChat("[BOT] "+"There are no player with nickname "+arg)
         		return;
         	}
         	arg = foundedPlayer;
             if (executorIsStaff) {
                 let targetIsStaff = database.get(arg).isStaff;
                 if (!targetIsStaff) {
-                    sendChat("/kick "+arg);
+                    sendChat("[BOT] "+"/kick "+arg);
                 } else {
-                    sendChat("You can't kick other staff")
+                    sendChat("[BOT] "+"You can't kick other staff")
                 }
             } else {
-                sendChat("You aren't staff!")
+                sendChat("[BOT] "+"You aren't staff!")
             }
         } else if (command === "!databaseset") {
             if (!executorIsStaff) {
-                sendChat("You aren't staff!");
+                sendChat("[BOT] "+"You aren't staff!");
                 return;
             }
             let advancedargs = stringarg.split("/");
@@ -804,11 +859,11 @@ let chatObserver = new MutationObserver(async (mutationRecords) => {
             let value = advancedargs[2];
 
             if (!database.has(target)) {
-        		sendChat(`Not found player with nickname "${target}" in database`)
+        		sendChat("[BOT] "+`Not found player with nickname "${target}" in database`)
         		return;
         	}
             if (constVarsForStaff.includes(variable) && !isDev(executor)) {
-                sendChat(`You can't set variable "${variable}"`);
+                sendChat("[BOT] "+`You can't set variable "${variable}"`);
                 return;
             }
 
@@ -818,13 +873,13 @@ let chatObserver = new MutationObserver(async (mutationRecords) => {
 
             if (!database.get(target).isStaff || executor === target || isDev(executor)) {
                 databaseFunc.set(target,variable,value)
-                sendChat(`Successfully set ${variable} of ${target} to ${value} (${typeof(value)})`);
+                sendChat("[BOT] "+`Successfully set ${variable} of ${target} to ${value} (${typeof(value)})`);
             } else {
-                sendChat("You can't change data of other staff")
+                sendChat("[BOT] "+"You can't change data of other staff")
             }
         } else if (command === "!databaseget") {
             if (!executorIsStaff) {
-                sendChat("You aren't staff!");
+                sendChat("[BOT] "+"You aren't staff!");
                 return;
             }
 
@@ -839,10 +894,10 @@ let chatObserver = new MutationObserver(async (mutationRecords) => {
                 targetDataString.push(variable+": "+value);
             }
 
-            sendChat(target+" | "+targetDataString.join(", "));
+            sendChat("[BOT] "+target+" | "+targetDataString.join(", "));
         } else if (command === "!grant") {
             if (!executorIsStaff) {
-                sendChat("You aren't staff!");
+                sendChat("[BOT] "+"You aren't staff!");
                 return;
             }
 
@@ -852,10 +907,10 @@ let chatObserver = new MutationObserver(async (mutationRecords) => {
 
             databaseFunc.addToArray(target,"achievements",achieve);
 
-            sendChat(`Successful granted "${achieve}" to ${target}`);
+            sendChat("[BOT] "+`Successful granted "${achieve}" to ${target}`);
         } else if (command === "!givepaiditem") {
             if (!executorIsStaff) {
-                sendChat("You aren't staff!");
+                sendChat("[BOT] "+"You aren't staff!");
                 return;
             }
 
@@ -865,111 +920,111 @@ let chatObserver = new MutationObserver(async (mutationRecords) => {
 
             databaseFunc.addToArray(target,"paiditems",paiditem);
 
-            sendChat(`Successful added item "${paiditem}" to ${target}`);
+            sendChat("[BOT] "+`Successful added item "${paiditem}" to ${target}`);
         } else if (command === "!restart") {
             if (isDev(executor)) {
                 restartClient();
             } else {
-                sendChat("Only dev can restart bot!");
+                sendChat("[BOT] "+"Only dev can restart bot!");
             }
         } else if (command === "!why") {
             let target = stringarg;
             if (isBlacklisted(target)) {
                 let reason = database.get(target).blacklistedReason;
                 if (reason) {
-                    sendChat(`${target} blacklisted by reason "${reason}"`);
+                    sendChat("[BOT] "+`${target} blacklisted by reason "${reason}"`);
                 } else {
-                    sendChat(`${target} blacklisted without reason`);
+                    sendChat("[BOT] "+`${target} blacklisted without reason`);
                 }
             } else {
-                sendChat(`${target} not blacklisted`);
+                sendChat("[BOT] "+`${target} not blacklisted`);
             }
         } else if (command === "!execute") {
             if (isDev(executor)) {
                 let arg = text.slice(8);
-                sendChat(eval(arg));
+                sendChat("[BOT] "+eval(arg));
             } else {
-                sendChat("Only dev can execute code!");
+                sendChat("[BOT] "+"Only dev can execute code!");
             }
         } else if (command === "!say") {
             if (isDev(executor)) {
                 let arg = text.slice(5);
-                sendChat(arg);
+                sendChat("[BOT] "+arg);
             } else {
-                sendChat("Only dev can say from bot!");
+                sendChat("[BOT] "+"Only dev can say from bot!");
             }
         } else if (command === "!dice") {
-			sendChat(`${executor} got ${Math.round(Math.random() * 5 + 1)}`);
+			sendChat("[BOT] "+`${executor} got ${Math.round(Math.random() * 5 + 1)}`);
         } else if (command === "!luck") {
-			sendChat(`${executor} is ${Math.round(Math.random()) ? "lucky" : "unlucky"}`);
+			sendChat("[BOT] "+`${executor} is ${Math.round(Math.random()) ? "lucky" : "unlucky"}`);
         } else if (command === "!transfer") {
             if (isNaN(args[1])) {
-                sendChat(`the argument #1 must be number!`);
+                sendChat("[BOT] "+`the argument #1 must be number!`);
                 return;
             }
 
             let user = stringarg1;
             if (!database.has(user)) {
-            	sendChat(`Player "${user}" not found in database`);
+            	sendChat("[BOT] "+`Player "${user}" not found in database`);
             	return;
             } else if (database.get(executor).money < args[1]) {
-            	sendChat(`You have only D$${database.get(user).executor}.`);
+            	sendChat("[BOT] "+`You have only D$${database.get(user).executor}.`);
             	return;
             } else if (args[1] < 5) {
-            	sendChat(`You can't send to other player less than D$5`);
+            	sendChat("[BOT] "+`You can't send to other player less than D$5`);
             	return;
             }
             databaseFunc.add(executor, "money", parseInt(-args[1]));
             databaseFunc.add(user, "money", parseInt(args[1]));
-            sendChat(`Successful spent D$${args[1]} to ${user}. (Now your balance: D$${database.get(executor).money}, balance of target: D$${database.get(user).money})`);
+            sendChat("[BOT] "+`Successful spent D$${args[1]} to ${user}. (Now your balance: D$${database.get(executor).money}, balance of target: D$${database.get(user).money})`);
         } else if (command === "!who" || command === "!stats") {
 			let user = stringarg;
             if (user === "im" || user === "me" || user === "") user = executor;
             if (!database.has(user)) {
-            	sendChat(`Player "${user}" not found in database`);
+            	sendChat("[BOT] "+`Player "${user}" not found in database`);
             	return;
             }
             let tmpvip = new Date() < database.get(user).vipTime ? ", is VIP" : "";
             let tmpstaff = database.get(user).isStaff ? ", is Staff" : "";
             let tmpblacklisted = isBlacklisted(user) ? ", blacklisted" : "";
-			sendChat(`${user} | D$${database.get(user).money}, AI rep: ${database.get(user).rep}${tmpvip}${tmpstaff}${tmpblacklisted}`);
+			sendChat("[BOT] "+`${user} | D$${database.get(user).money}, AI rep: ${database.get(user).rep}${tmpvip}${tmpstaff}${tmpblacklisted}`);
         } else if (command === "!achieves") {
 			let user = stringarg;
             if (user === "im" || user === "me" || user === "") user = executor;
             if (!database.has(user)) {
-            	sendChat(`Player "${user}" not found in database`);
+            	sendChat("[BOT] "+`Player "${user}" not found in database`);
             	return;
             }
-			sendChat(`${user} | ${database.get(user).achievements.join(", ")}`);
+			sendChat("[BOT] "+`${user} | ${database.get(user).achievements.join(", ")}`);
         } else if (command === "!paiditems") {
 			let user = stringarg;
             if (user === "im" || user === "me" || user === "") user = executor;
             if (!database.has(user)) {
-            	sendChat(`Player "${user}" not found in database`);
+            	sendChat("[BOT] "+`Player "${user}" not found in database`);
             	return;
             }
-			sendChat(`${user} | ${database.get(user).paiditems.join(", ")}`);
+			sendChat("[BOT] "+`${user} | ${database.get(user).paiditems.join(", ")}`);
         } else if (command === "!casino") {
             if (args[1] === "confirm") {
                 databaseFunc.set(executor, "casinoWarned", true);
-                sendChat(`You are warned about no guarantee in casino. Now you can use !casino (bet)`);
+                sendChat("[BOT] "+`You are warned about no guarantee in casino. Now you can use !casino (bet)`);
             	return;
             } else if (isNaN(args[1])) {
-                sendChat(`the argument #1 must be number/'confirm'!`);
+                sendChat("[BOT] "+`the argument #1 must be number/'confirm'!`);
                 return;
             } else if (!database.get(executor).casinoWarned) {
-            	sendChat(`WARNING! Problem gambling is bad!
+            	sendChat("[BOT] "+`WARNING! Problem gambling is bad!
             	There is no guarantee that you won't lose your ENTIRE balance!
             	Heed our warning. If you are certain, type !casino confirm`);
             	return;
             } else if (database.get(executor).money < args[1]) {
-            	sendChat(`You don't have D$${args[1]-database.get(executor).money} to play casino.`);
+            	sendChat("[BOT] "+`You don't have D$${args[1]-database.get(executor).money} to play casino.`);
             	return;
             } else if (args[1] < 50) {
-            	sendChat(`You can't play casino with bet less at D$50.`);
+            	sendChat("[BOT] "+`You can't play casino with bet less at D$50.`);
             	return;
             } else if (args[1] > database.get(executor).money/2) {
-            	sendChat(`You can't play casino with bet more at half of your balance.`);
+            	sendChat("[BOT] "+`You can't play casino with bet more at half of your balance.`);
             	return;
             }
 
@@ -987,22 +1042,22 @@ let chatObserver = new MutationObserver(async (mutationRecords) => {
             else factor = 100;
             bet *= factor;
 
-            if (random < 50) sendChat("You Loser...");
-            else if (random < 75) sendChat("Ow =(");
-            else if (random < 90) sendChat("fuh");
-            else if (random < 95) sendChat("YEEEEEEEEEEEES");
-            else if (random < 98) sendChat("OH MY GOOOOOOD");
-            else if (random < 100) sendChat("SUIIIIIIIIIIIIIIII");
-            else sendChat("JACKPOOOOOOOOOOOOOOOOOT!!!!!!!!!!!");
+            if (random < 50) sendChat("[BOT] "+"You Loser...");
+            else if (random < 75) sendChat("[BOT] "+"Ow =(");
+            else if (random < 90) sendChat("[BOT] "+"fuh");
+            else if (random < 95) sendChat("[BOT] "+"YEEEEEEEEEEEES");
+            else if (random < 98) sendChat("[BOT] "+"OH MY GOOOOOOD");
+            else if (random < 100) sendChat("[BOT] "+"SUIIIIIIIIIIIIIIII");
+            else sendChat("[BOT] "+"JACKPOOOOOOOOOOOOOOOOOT!!!!!!!!!!!");
 
             /*
             for (let i = 0; i < Math.ceil(Math.random()*10); i++) {
-                sendChat(`The factor is ${String(Math.random()*5).slice(0,2)}...`)
+                sendChat("[BOT] "+`The factor is ${String(Math.random()*5).slice(0,2)}...`)
             }
-            sendChat(`The factor is ${factor}.`)
+            sendChat("[BOT] "+`The factor is ${factor}.`)
             */
             databaseFunc.add(executor, "money", bet)
-            sendChat(`${executor} got D$${args[1]} x ${factor} = D$${args[1]*factor}, chance ${random}% (now balance is D$${database.get(executor).money})`)
+            sendChat("[BOT] "+`${executor} got D$${args[1]} x ${factor} = D$${args[1]*factor}, chance ${random}% (now balance is D$${database.get(executor).money})`)
         } else if (
             bot.perms.includes("ai")
         	&& (
@@ -1026,12 +1081,12 @@ let chatObserver = new MutationObserver(async (mutationRecords) => {
         	}
 
         	if (database.get(executor).money < cost) {
-        	    sendChat(`You don't have D$${cost-database.get(executor).money} to answer AI`)
+        	    sendChat("[BOT] "+`You don't have D$${cost-database.get(executor).money} to answer AI`)
         	    return;
         	}
         	let lastmessagecontent = messagehistory.at(-1).content;
         	if (lastmessagecontent.length-executor.length-2 < 5) {
-        		sendChat("Please, your message must not empty or not less than 5 symbols");
+        		sendChat("[BOT] "+"Please, your message must not empty or not less than 5 symbols");
         		return;
         	}
         	database.get(executor).money -= cost;
@@ -1046,39 +1101,39 @@ let chatObserver = new MutationObserver(async (mutationRecords) => {
         } else if (command === "!aimodel") {
             let allowedModels = ["boryact","stupid"];
             if (!allowedModels.includes(stringarg)) {
-        	    sendChat(`You can't set model ${stringarg.slice(0,20)}, allowed models: ${allowedModels.join(", ")}`)
+        	    sendChat("[BOT] "+`You can't set model ${stringarg.slice(0,20)}, allowed models: ${allowedModels.join(", ")}`)
         	    return;
         	}
 			databaseFunc.set(executor, "aimodel", stringarg.slice(0,20))
-			sendChat(`Successful set AI model to ${stringarg.slice(0,20)}`)
+			sendChat("[BOT] "+`Successful set AI model to ${stringarg.slice(0,20)}`)
         } else if (command === "!modifyai") {
 			if (!executorIsVip) {
-				sendChat("You don't have vip to execute this command");
+				sendChat("[BOT] "+"You don't have vip to execute this command");
 				return;
 			}
 			databaseFunc.set(executor, "ai_systemprompt", stringarg)
         } else if (command === "!соси_нежно") {
-            sendChat(`${executor}. Не триггери`);
+            sendChat("[BOT] "+`${executor}. Не триггери`);
         } else if (command === "!burmalda") {
-            sendChat(`БУРМОЛДООООО`);
+            sendChat("[BOT] "+`БУРМОЛДООООО`);
         } else if (command === "!1488") {
-            sendChat(`ЭЩКЕРЕЕЕЕЕЕЕЕЕЕЕЕЕЕЕЕЕЕЕ`);
+            sendChat("[BOT] "+`ЭЩКЕРЕЕЕЕЕЕЕЕЕЕЕЕЕЕЕЕЕЕЕ`);
         } else if (command === "!svo" || command === "!сво") {
         	if (stringarg) {if (!getPlayers().includes(stringarg)) return};
-            sendChat(`О НЕТ! ${(stringarg ? stringarg.toUpperCase() : executor.toUpperCase())} ТЕПЕРЬ НА ФРОНТЕ!!!`);
+            sendChat("[BOT] "+`О НЕТ! ${(stringarg ? stringarg.toUpperCase() : executor.toUpperCase())} ТЕПЕРЬ НА ФРОНТЕ!!!`);
         } else if (command === "!zov" || command === "!зов") {
-            sendChat(`zoooov`);
+            sendChat("[BOT] "+`zoooov`);
         } else if (command === "!cartel" || command === "!картель") {
-            sendChat(`АААААААААААААААА КАРТЕЛЬ`);
+            sendChat("[BOT] "+`АААААААААААААААА КАРТЕЛЬ`);
         } else if (command === "!svin" || command === "!свин") {
         	if (!stringarg) return;
-            sendChat(`ОХО! ${executor.toUpperCase()} НАПЭСАЛ ШО ${stringarg.toUpperCase()} УКРАIНЭЦ!!!`);
+            sendChat("[BOT] "+`ОХО! ${executor.toUpperCase()} НАПЭСАЛ ШО ${stringarg.toUpperCase()} УКРАIНЭЦ!!!`);
         } else if (command.startsWith("!")) {
-            sendChat(`Command "${args[0].length > 30 ? text.slice(0, 30)+"..." : args[0]}" not found. Check commands by !help`);
+            sendChat("[BOT] "+`Command "${args[0].length > 30 ? text.slice(0, 30)+"..." : args[0]}" not found. Check commands by !help`);
         } else if (message.endsWith(" joined the ship.") && bot.perms.includes("greet-joined-players")) {
             if (isBlacklisted(lastJoinedUser) && bot.perms.includes("ban-blacklisted-users")) {
                 banPlayer(lastJoinedUser);
-                sendChat(`${lastJoinedUser} is blacklisted and was banned by reason "${database.get(lastJoinedUser).blacklistedReason}", proof: "${database.get(lastJoinedUser).blacklistedProof}"`);
+                sendChat("[BOT] "+`${lastJoinedUser} is blacklisted and was banned by reason "${database.get(lastJoinedUser).blacklistedReason}", proof: "${database.get(lastJoinedUser).blacklistedProof}"`);
                 return;
             }
             if (!message.includes(":")) {
@@ -1092,27 +1147,69 @@ let chatObserver = new MutationObserver(async (mutationRecords) => {
                                 if (element.textContent == "BANNED") countbanned++;
                             }
                         }
-                        sendChat(`Hello ${lastJoinedUser}! I banned ${countbanned} players. Check the rules if you want not be banned. =). Also check commands by using !help`);
+                        sendChat("[BOT] "+`Hello ${lastJoinedUser}! I banned ${countbanned} players. Check the rules if you want not be banned. =). Also check commands by using !help`);
                     } else {
-                        sendChat(`Hello ${lastJoinedUser}! Check commands by using !help`);
+                        sendChat("[BOT] "+`Hello ${lastJoinedUser}! Check commands by using !help`);
                     }
                 } else if (razrivTime > 4*60*60*1000) {
-                    sendChat(`Hi ${lastJoinedUser}! Nice to see you!`)
+                    sendChat("[BOT] "+`Hi ${lastJoinedUser}! Nice to see you!`)
                 } else if (razrivTime > 1*60*1000) {
-                    sendChat(`Welcome back ${lastJoinedUser}!`)
+                    sendChat("[BOT] "+`Welcome back ${lastJoinedUser}!`)
+                }
+            }
+        } else if (bot.perms.includes("movable-by-commands")) {
+            if (args[0] === "робот") {
+                if (!args[1] && !bot.hears) {
+                    sendChat("[BOT] "+`${laskovieSlova[Math.floor(Math.random()*laskovieSlova.length)]} господин ${executor}`);
+                    bot.hears = executor;
+                } else if (bot.hears === executor) {
+                    if (args[1] === "иди") {
+                        args[3] = args[3] || 3000
+                        if (args[2] === "влево") {
+                            sendChat("[BOT] "+`Иду влево ${args[3]} миллисекунд`)
+                            tapKey("a",args[3])
+                        } else if (args[2] === "вправо") {
+                            sendChat("[BOT] "+`Иду вправо ${args[3]} миллисекунд`)
+                            tapKey("d",args[3])
+                        } else if (args[2] === "вверх") {
+                            sendChat("[BOT] "+`Иду вверх ${args[3]} миллисекунд`)
+                            tapKey("w",args[3])
+                        } else if (args[2] === "вниз") {
+                            sendChat("[BOT] "+`Иду вниз ${args[3]} миллисекунд`)
+                            tapKey("s",args[3])
+                        } else if (args[2] === "нахуй") {
+                            sendChat("[BOT] "+`ыыы я на тибя обиделся`)
+                            sendChat("[BOT] "+`всо бын визди`)
+                            sendChat("[BOT] "+`/ban ${executor}`)
+                            sendChat(`/ban ${executor}`)
+                            bot.hears = "";
+                        }
+                    } else if (args[1] === "скажи") {
+                        if (args[2]) {
+                            sendChat("[BOT] "+args.slice(2).join(" "))
+                        } else {
+                            sendChat("[BOT] Что сказать?")
+                        }
+                    } else if (args[1] === "прыгни") {
+                        sendChat("[BOT] Прыгнул.")
+                        tapKey("Space",200)
+                    } else if (args[1] === "свободен") {
+                        sendChat("[BOT] "+`Рад был работать на вас, господин ${executor}!`)
+                        bot.hears = "";
+                    }
                 }
             }
         } else if (bot.perms.includes("no-link") && false && !targetIsStaff && !targetIsVip) {
-            sendChat(executor+" said link");
-        } else if (message === "Invalid target.") {sendChat("Invalid target (is offine?)")}
-        else if (message === "Target's rank is too high to kick.") {sendChat("Fail to interact with target (is cap/bot not cap?)")}
+            sendChat("[BOT] "+executor+" said link");
+        } else if (message === "Invalid target.") {sendChat("[BOT] "+"Invalid target (is offine?)")}
+        else if (message === "Target's rank is too high to kick.") {sendChat("[BOT] "+"Fail to interact with target (is cap/bot not cap?)")}
     } else {
         /*
         window.postMessage({type: "fromothertab", message}, "*");
         if (!document.hasFocus() && client.notify) {
             notify("Drednot Chat", message, "https://www.google.com/s2/favicons?sz=64&domain=drednot.io", "", () => {
                 window.focus();
-                sendChat(`Прочитал ${message.length <= 50 ? message : message.slice(0, 50)+"..."}`);
+                sendChat("[BOT] "+`Прочитал ${message.length <= 50 ? message : message.slice(0, 50)+"..."}`);
                 reg.getNotifications({ includeTriggered: true })
                     .then((notifications) => {
                         notifications.forEach((notification) => {notification.close()});
@@ -1123,7 +1220,7 @@ let chatObserver = new MutationObserver(async (mutationRecords) => {
         if (text.startsWith("Joined ship ")) {
             if (sessionStorage.getItem("runAsBot") === "true") {
                 bot.active = true;
-                sendChat("Bot successfull restarted");
+                sendChat("[BOT] "+"Bot successfull restarted");
                 document.getElementById("team_manager_button").click();
                 setTimeout(() => document.getElementById("team_manager_button").click(), 1000);
                 start = new Date();
@@ -1135,13 +1232,14 @@ let chatObserver = new MutationObserver(async (mutationRecords) => {
 	else if (message.endsWith("left the ship.")) singlePlay(soundpad.leave);
 	else if (message.includes("was banned from the ship by")) singlePlay(soundpad.armatura);
 	else if (message.startsWith("[SYSTEM]")) singlePlay(soundpad.messageFromSystem)
+    else if (message.startsWith("[DREDER CLIENT]")) singlePlay(soundpad.messageFromSystem)
 	else if (executor == myUsername) singlePlay(soundpad.messageFromMe)
 	else singlePlay(soundpad.message);
 
     if (text == bot.examanswer && bot.perms.includes("exam")) {
         if (text == null) return;
         if (database.get(executor).banmoney) return;
-        sendChat(`${executor} said right answer and got D$${bot.examhowmanyoperations}!`);
+        sendChat("[BOT] "+`${executor} said right answer and got D$${bot.examhowmanyoperations}!`);
         databaseFunc.add(executor, "money", bot.examhowmanyoperations)
         bot.examanswer = null;
         bot.examhowmanyoperations = 0;
@@ -1151,7 +1249,7 @@ let chatObserver = new MutationObserver(async (mutationRecords) => {
             if (text === "") return;
             if (database.get(executor).banmoney) return;
             clearTimeout(bot.viktorinatimer);
-            sendChat(`${executor} said right answer and got D$${bot.viktorinamoneyaward}!`);
+            sendChat("[BOT] "+`${executor} said right answer and got D$${bot.viktorinamoneyaward}!`);
             databaseFunc.add(executor, "money", bot.viktorinamoneyaward);
             bot.viktorinaanswer = "";
             bot.viktorinawronganswers = [];
@@ -1160,7 +1258,7 @@ let chatObserver = new MutationObserver(async (mutationRecords) => {
             if (text === "") return;
             if (database.get(executor).banmoney) return;
             clearTimeout(bot.viktorinatimer);
-            sendChat(`${executor} said wrong answer and lose D${bot.viktorinamoneyaward*0.8}...`);
+            sendChat("[BOT] "+`${executor} said wrong answer and lose D${bot.viktorinamoneyaward*0.8}...`);
             databaseFunc.add(executor, "money", -bot.viktorinamoneyaward*0.8);
             bot.viktorinaanswer = "";
             bot.viktorinawronganswers = [];
@@ -1174,7 +1272,7 @@ let chatObserver = new MutationObserver(async (mutationRecords) => {
         const alreadyvoted = Object.values(bot.pollanswersusers).some(arr => arr.includes(executor));
         if (alreadyvoted) return;
 
-        sendChat(`${executor} voted variant ${text.toUpperCase()}: ${pollAnswer}`);
+        sendChat("[BOT] "+`${executor} voted variant ${text.toUpperCase()}: ${pollAnswer}`);
         bot.pollanswersusers[pollAnswer].push(executor);
     }
     let url = new URL("https://google.com");
@@ -1196,13 +1294,13 @@ let chatObserver = new MutationObserver(async (mutationRecords) => {
         writeChat(img.outerHTML, 10000);
     }
     if (/D[oо] [TТ]h[eе] R[oо][aа]r!/.test(text)) {
-        // realSendChat("ill cum your roar");
-        realSendChat("not roar");
+        // realsendChat("[BOT] "+"ill cum your roar");
+        realsendChat("not roar");
     } else if (text.endsWith("meow")) {
-        // realSendChat("shut up ill fuck your femboy ass");
-        realSendChat("not mrrow");
+        // realsendChat("[BOT] "+"shut up ill fuck your femboy ass");
+        realsendChat("not mrrow");
     } else if (text.endsWith("уга-буга")) {
-        realSendChat("буга-уга");
+        realsendChat("буга-уга");
     }
 });
 chatObserver.observe(mychatContent, { attributes: false, childList: true, characterData: false });
@@ -1221,6 +1319,8 @@ let motdObserver = new MutationObserver(mutationRecords => {
     let jukeboxvalue = getSlicedValue(motdText, "Jukebox: ");
     jukeboxSetURL(jukeboxvalue.trim());
     motdCotext2.innerHTML = motdText;
+    const iframes = motdCotext2.querySelectorAll('iframe');
+    iframes.forEach(iframe => iframe.remove());
 });
 motdObserver.observe(motdCotext, { attributes: false, childList: true, characterData: false })
 
@@ -1237,27 +1337,27 @@ observeNode(document.querySelector("#team_menu"), () => {
                 try {executorIsStaff = database.get(executor).isStaff} catch (err) {};
                 let executorIsVip = false;
                 if (logMessage.endsWith("in ejector.")) {
-                    sendChat("/ban "+executor);
-                    sendChat(executor.toUpperCase()+" PUTTED SOMETHING IN EJECTOR");
+                    sendChat("[BOT] "+"/ban "+executor);
+                    sendChat("[BOT] "+executor.toUpperCase()+" PUTTED SOMETHING IN EJECTOR");
                 } else if (logMessage.endsWith("placed Cargo Ejector .")) {
-                    // sendChat(`${executor.toUpperCase()}!! IF YOU PLACE ITEM TO EJECTOR, YOU GET BANNED!!!!!!!!!!`);
-                    sendChat("/ban "+executor);
-                    sendChat(executor.toUpperCase()+" PLACED EJECTOR");
+                    // sendChat("[BOT] "+`${executor.toUpperCase()}!! IF YOU PLACE ITEM TO EJECTOR, YOU GET BANNED!!!!!!!!!!`);
+                    sendChat("[BOT] "+"/ban "+executor);
+                    sendChat("[BOT] "+executor.toUpperCase()+" PLACED EJECTOR");
                 } else if (logMessage.endsWith("used wrench on Safety Anchor.")) {
                     if (!executorIsStaff && !executorIsVip) {
-                        sendChat("/ban "+executor);
-                        sendChat(executor.toUpperCase()+" BROKE ANCHOR");
+                        sendChat("[BOT] "+"/ban "+executor);
+                        sendChat("[BOT] "+executor.toUpperCase()+" BROKE ANCHOR");
                     }
                 } else if (logMessage.endsWith("placed Spawn Point .")) {
                     if (!executorIsStaff) {
-                        sendChat("/kick "+executor);
-                        sendChat(executor.toUpperCase()+" PLACED SPAWN POINT");
+                        sendChat("[BOT] "+"/kick "+executor);
+                        sendChat("[BOT] "+executor.toUpperCase()+" PLACED SPAWN POINT");
                     }
                 }
             }
             if (logMessage.endsWith("teleported the ship to.") && bot.perms.includes("/home-on-zone-switch")) {
-                sendChat("/home");
-                sendChat(executor+" teleported ship from Freeport");
+                sendChat("[BOT] "+"/home");
+                sendChat("[BOT] "+executor+" teleported ship from Freeport");
             }
         }, false, true, false, { attributes: false, childList: true, characterData: false });
     }, 2000)
@@ -1278,13 +1378,13 @@ window.addEventListener("message", (async (event) => {
 			    };
 			    if (json === "errorToParse") {
 			    	let error = event.data.payload.data;
-			    	// sendChat("[AI JOB] "+error);
-			    	sendChat(error);
+			    	// sendChat("[BOT] "+"[AI JOB] "+error);
+			    	sendChat("[BOT] "+error);
 			    } else {
 			    	console.debug(json);
 			    	try {databaseFunc.add(json.who, "rep", json.rep)}
-			    	catch (err) {sendChat("[AI JOB] Error to add rep: "+err)};
-			    	sendChat("[AI] "+json.text);
+			    	catch (err) {sendChat("[BOT] "+"[AI JOB] Error to add rep: "+err)};
+			    	sendChat("[BOT] "+"[AI] "+json.text);
 
 			    	let actionsmap = new Map();
 			    	try {actionsmap = new Map(Object.entries(json.actions))} catch (err) {}
@@ -1299,11 +1399,11 @@ window.addEventListener("message", (async (event) => {
 			    	    }
 			    	    if (player.KICK) {
 			    	        drederClientDebug(`AI action: kick ${playerName}`);
-			    	        sendChat("/kick "+playerName);
+			    	        sendChat("[BOT] "+"/kick "+playerName);
 			    	    }
 			    	    if (player.BAN) {
 			    	        drederClientDebug(`AI action: ban ${playerName}`);
-			    	        sendChat("/ban "+playerName);
+			    	        sendChat("[BOT] "+"/ban "+playerName);
 			    	    }
 			    	    if (player.BLACKLIST) {
 			    	        drederClientDebug(`AI action: blacklist ${playerName} by reason ${reason}`);
@@ -1320,18 +1420,18 @@ window.addEventListener("message", (async (event) => {
                             let finalmotd = [];
                             editmotd.forEach((line, idx, array) => {
                                 if (line) {
-                                    sendChat(`Line #${idx+1} "${ogmotd[idx].slice(0,50)}" edited to "${line.slice(0,50)}"`);
+                                    sendChat("[BOT] "+`Line #${idx+1} "${ogmotd[idx].slice(0,50)}" edited to "${line.slice(0,50)}"`);
                                     finalmotd.push(line);
                                 } else {finalmotd.push(ogmotd[idx])}
                             })
-			    	        sendChat(`Set MOTD to ${finalmotd.join('\n').slice(0,200)}`)
+			    	        sendChat("[BOT] "+`Set MOTD to ${finalmotd.join('\n').slice(0,200)}`)
 			    	        setMotd(finalmotd.join('\n'));
 			    	    }
 			    	}
 			    }
 		    } else if (event.data.payload.from === "aternos") {
 		        drederClientDebug(`got ${event.data.payload.data}`);
-		      //  sendChat("[ATERNOS] "+event.data.payload.data);
+		      //  sendChat("[BOT] "+"[ATERNOS] "+event.data.payload.data);
 		    }
 		} else if (event.data.payload.stype === "eval") eval(event.data.payload.data);
 	}
@@ -1361,7 +1461,7 @@ observer = new MutationObserver(mutationRecords => {
     console.log(mutationRecords[0].addedNodes[0].textContent);
     writeChat(logMessage);
     if (logMessage.endsWith("in ejector.")) {
-        sendChat("DETECTED EXPORTING ITEMS");
+        sendChat("[BOT] "+"DETECTED EXPORTING ITEMS");
     }
 });
 observer.observe(teamLog, { attributes: false, childList: true, characterData: false });
@@ -1422,38 +1522,38 @@ function insultAnswer(text) {
                 "мазохиста",
                 "баяниста",
             ];
-            sendChat(
+            sendChat("[BOT] "+
                 rifma1[Math.ceil(Math.random()*rifma1.length-1)]
                 +" "
                 +rifma2[Math.ceil(Math.random()*rifma2.length-1)]);
         } else if (/[йуy]+[ьъ]?[aа]+/.test(text.toLowerCase()) || text.toLowerCase() === "я") {
-            sendChat("Толстожопая свинь"+text.toLowerCase());
+            sendChat("[BOT] "+"Толстожопая свинь"+text.toLowerCase());
         } else if (text.toLowerCase() === "три") {
-            sendChat("Жопу подотpи");
+            sendChat("[BOT] "+"Жопу подотpи");
         } else if (text.toLowerCase() === "пять") {
-            sendChat("Выебал тебя опять");
+            sendChat("[BOT] "+"Выебал тебя опять");
         } else if (text.toLowerCase() === "мы") {
-            sendChat("Надень панамы");
+            sendChat("[BOT] "+"Надень панамы");
         } else if (text.toLowerCase() === "да") {
-            sendChat("Пизда");
+            sendChat("[BOT] "+"Пизда");
         } else if (text.toLowerCase() === "нет") {
-            sendChat("Минет");
+            sendChat("[BOT] "+"Минет");
         } else if (text.toLowerCase() === "ладно") {
-            sendChat("В жопе прохладно");
+            sendChat("[BOT] "+"В жопе прохладно");
         } else if (text.toLowerCase() === "ты") {
-            sendChat("Жопой нюхаешь цветы");
+            sendChat("[BOT] "+"Жопой нюхаешь цветы");
         } else if (text.toLowerCase() === "так") {
-            sendChat("Сказал мудак");
+            sendChat("[BOT] "+"Сказал мудак");
         } else if (/([cс][aао][мm][аaоo0]|[vbв[еeё][pр][tт][oо0])[лl]ё[тt]/.test(text.toLowerCase())) {
-            sendChat("Снимай трусы и иди в полёт");
+            sendChat("[BOT] "+"Снимай трусы и иди в полёт");
         } else if (/[мm]яч[иi][кk][иi]/.test(text.toLowerCase())) {
-            sendChat("Тебе нравятся мальчики");
+            sendChat("[BOT] "+"Тебе нравятся мальчики");
         } else if (text.toLowerCase() === "ебать") {
-            sendChat("Твою жопу");
+            sendChat("[BOT] "+"Твою жопу");
         } else if (text.toLowerCase() === "ура") {
-            sendChat("В жопе дыра");
+            sendChat("[BOT] "+"В жопе дыра");
         } else if (text.toLowerCase() === "карапуз") {
-            sendChat("Запустил семя в арбуз");
+            sendChat("[BOT] "+"Запустил семя в арбуз");
         }
     }
 }
@@ -1461,12 +1561,9 @@ function insultAnswer(text) {
 function observeNode(node, func, isLogMessage = false, loop = false, wait = false, conf = {childList: true,attributes: true,subtree: true}) {
     if (!wait) {
         let observer = new MutationObserver(mutationRecords => {
-            if (isLogMessage) {
-            } else {
-                func();
-                if (!loop) {
-                    observer.disconnect();
-                }
+            func(mutationRecords);
+            if (!loop) {
+                observer.disconnect();
             }
         });
         observer.observe(node, conf);
@@ -1484,7 +1581,7 @@ function observeNode(node, func, isLogMessage = false, loop = false, wait = fals
     }
 }
 
-function realSendChat(message) {
+function realsendChat(message) {
     message = message.slice(0,300);
     let chatClosed = chatBox.classList.contains('closed');
     if (chatClosed) chatBtn.click();
@@ -1510,7 +1607,6 @@ function broadcastToOtherTab(data, stype = "eval") {
 }
 
 function startPoll(question, answersInArr = ["yes","no"], secs = 30, options = {
-
     ignoredPlayers: [],
 }) {
     bot.polltimer = setTimeout(() => {
@@ -1532,7 +1628,7 @@ function startPoll(question, answersInArr = ["yes","no"], secs = 30, options = {
         let msg = "Poll ended, ";
         if (countThenDraw>1) msg += `drawed with ${countThenDraw} answers`;
         else msg += `won "${bestAnswer}" (${Math.round((bot.pollanswersusers[bestAnswer].length/allCount)*100)}%)`;
-        sendChat(msg)
+        sendChat("[BOT] "+msg)
     }, secs*1000+3500);
 
     let displayanswers = "";
@@ -1544,9 +1640,9 @@ function startPoll(question, answersInArr = ["yes","no"], secs = 30, options = {
         displayanswers += `${englishsymbols[idx]}) ${ans}` + (idx<answersInArr.length-1?'; ':'');
     })
 
-    sendChat("POLL: "+question);
-    sendChat(`Avaliables answers: ${displayanswers}`);
-    sendChat(`Gives ${secs} seconds to give answer.`);
+    sendChat("[BOT] "+"POLL: "+question);
+    sendChat("[BOT] "+`Avaliables answers: ${displayanswers}`);
+    sendChat("[BOT] "+`Gives ${secs} seconds to give answer.`);
 }
 
 function checkInsultAnswer(executor) {
@@ -1992,16 +2088,30 @@ function sendObjToDCws(obj) {
 
 DCws.onmessage = (event) => {
     let obj = JSON.parse(event.data);
-    if (obj.type === "waitingForUsername") {
+    if (obj.type === "waitingForData") {
         sendObjToDCws({
-            type: "givingUsername",
-            username: myUsername
+            type: "givingData",
+            username: myUsername,
+            password: "",
         })
-    } else if (obj.type === "someIsOnline") {
-        writeChat(`${DREDERCLIENT_PREFIX} <b>${obj.username}</b> is online`);
-    } else if (obj.type === "someIsOffline") {
-        writeChat(`${DREDERCLIENT_PREFIX} <b>${obj.username}</b> is offline`);
+    } else if (obj.type === "getPlayers") {
+        DCusers = obj.array;
+    } else if (obj.type === "connected") {
+        writeChat(`${DREDERCLIENT_PREFIX} Connected to DC server`);
+        sendObjToDCws({type: "getPlayers"})
+    } else if (obj.type === "userIsOnline") {
+        if (obj.username === myUsername) return;
+        writeChat(`${DREDERCLIENT_PREFIX} <b>${obj.username}</b> now online`);
+        DCusers.push(obj.username)
+    } else if (obj.type === "userIsOffline") {
+        writeChat(`${DREDERCLIENT_PREFIX} <b>${obj.username}</b> now offline`);
+        if (DCusers.includes(obj.username)) DCusers.splice(DCusers.indexOf(obj.username),1)
+    } else if (obj.type === "close") {
+        writeChat(`${DREDERCLIENT_PREFIX} Connection to DC server closed by reason '<b>${obj.reason}</b>'`);
     }
+}
+DCws.onerror = (event) => {
+    writeChat(`${DREDERCLIENT_PREFIX} Fail to connect DC server`)
 }
 
 drederClientDebug(`Client is fully loaded!`);
