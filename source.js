@@ -6,7 +6,7 @@
 // @author       Dreder
 // @match        https://drednot.io/*
 // @match        https://test.drednot.io/*
-// @icon         https://www.google.com/s2/favicons?sz=64&domain=drednot.io
+// @icon         https://raw.githubusercontent.com/Dredarker/dreder-client/refs/heads/main/Dreder%20Client%20icon.png
 // @downloadURL  https://raw.githubusercontent.com/Dredarker/dreder-client/refs/heads/main/source.js
 // @updateURL    https://raw.githubusercontent.com/Dredarker/dreder-client/refs/heads/main/source.js
 // @grant        none
@@ -60,16 +60,19 @@ const chatInput2CSS = `
     font-size: 16pt;
 `;
 const motdCotext2CSS = `
-    font-size: 10px;
+    font-size: 10pt;
     max-width: 400px;
     max-height: 300px;
     overflow-x: auto;
     overflow-y: auto;
     white-space: pre-wrap;
     word-wrap: break-word;
-`
+`;
 
-// JS
+// HTML TEMPLES
+const DCicon = `<img style="height: 14pt;" src="https://raw.githubusercontent.com/Dredarker/dreder-client/refs/heads/main/Dreder%20Client%20icon.png" />`;
+
+// JS MAIN
 const DREDERCLIENT_PREFIX = `<b style="color:darkred">[DREDER CLIENT]</b>`;
 const chatBox = document.getElementById("chat");
 const chatInp = document.getElementById("chat-input");
@@ -456,6 +459,12 @@ setInterval(async () => {
     }
 }, 5*60*1000);
 
+drederClientDebug(`Starting shiplist refresher on menu...`);
+setInterval(async () => {
+    if (getPageTitle().includes(" - ")) return;
+    try {document.querySelector("#shipyard > div.window.dark > section:nth-child(4) > button").click()} catch (e) {}
+}, 10*1000);
+
 
 
 drederClientDebug(`Loading configuration...`);
@@ -662,7 +671,12 @@ function sliceRankAndGetUsername(userWithRank) {
 function sliceUsernameAndGetVisualRank(userWithRank) {
     if (userWithRank.startsWith("[Captain] ")) return "[<b style='color:cyan'>Captain</b>] ";
     else if (userWithRank.startsWith("[Crew] ")) return "[<b style='color:yellow'>Crew</b>] ";
-    else return userWithRank;
+    else return "";
+}
+function sliceUsernameAndGetRank(userWithRank) {
+    if (userWithRank.startsWith("[Captain] ")) return "captain";
+    else if (userWithRank.startsWith("[Crew] ")) return "crew";
+    else return "guest";
 }
 
 function cancelVoting() {
@@ -704,11 +718,19 @@ let chatObserver = new MutationObserver(async (mutationRecords) => {
     try {
     	message = newNode.innerText;
     } catch (err) {}
-    if (message.startsWith("WARNING: ")) return;
+    if (message.startsWith("WARNING: Please be careful who you trust!")) {
+        newNode.remove();
+        return;
+    }
     localStorage.setItem("saved-chat", mychatContent.innerHTML);
     let text = readText(message, ":");
     if (message.includes(": ")) text = text.slice(1);
-    executor = sliceRankAndGetUsername(readText(message, ":", "before"));
+    let executorWithRank = readText(message, ":", "before")
+    let executor = sliceRankAndGetUsername(executorWithRank);
+    let visualrank = sliceUsernameAndGetVisualRank(executorWithRank);
+    let rank = sliceUsernameAndGetRank(executorWithRank);
+    let isDCuser = DCusers.includes(executor);
+
     let executorIsStaff = false;
 	let executorVipTime = new Date(0);
     let executorIsVip = false;
@@ -749,7 +771,11 @@ let chatObserver = new MutationObserver(async (mutationRecords) => {
             return;
         }
     }
-    //if (message.includes(": ") && executor) replaceHTML(newNode,`<b>${executor}</b>: ${text}`);
+    if (
+        message.includes(": ")
+        && !executor.startsWith("[SYSTEM]")
+        && executor
+    ) replaceHTML(newNode,`${visualrank}<b>${executor}</b>${isDCuser?DCicon:""}: ${text}`);
     if (executor !== myUsername) insultAnswer(text);
     if (isBlacklisted(executor)) {
         replaceHTML(newNode,`<b>${executor}</b> (BLACKLISTED): ${"*".repeat(Math.ceil(text.length/3))}`)
