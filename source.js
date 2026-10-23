@@ -774,6 +774,7 @@ let chatObserver = new MutationObserver(async (mutationRecords) => {
     if (
         message.includes(": ")
         && !executor.startsWith("[SYSTEM]")
+        && !executor.startsWith("[DREDER CLIENT]")
         && executor
     ) replaceHTML(newNode,`${visualrank}<b>${executor}</b>${isDCuser?DCicon:""}: ${text}`);
     if (executor !== myUsername) insultAnswer(text);
