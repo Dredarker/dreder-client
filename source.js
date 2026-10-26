@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Dreder Client
 // @namespace    http://tampermonkey.net/
-// @version      2026-10-07
+// @version      1.2.0
 // @description  Client for drednot.io
 // @author       Dreder
 // @match        https://drednot.io/*
@@ -70,7 +70,7 @@ const motdCotext2CSS = `
 `;
 
 // HTML TEMPLES
-const DCicon = `<img style="height: 14pt;" src="https://raw.githubusercontent.com/Dredarker/dreder-client/refs/heads/main/Dreder%20Client%20icon.png" />`;
+const DCicon = `<img style="height: 16px;" src="https://raw.githubusercontent.com/Dredarker/dreder-client/refs/heads/main/Dreder%20Client%20icon.png"/>`;
 
 // JS MAIN
 const DREDERCLIENT_PREFIX = `<b style="color:darkred">[DREDER CLIENT]</b>`;
@@ -122,9 +122,10 @@ var lastJoinedUser;
 let rejoinOnInvite = false;
 var oldonlineships = {};
 var onlineships = getShips(true);
+var lastjoinedshipname = "";
 let DCusers = [];
 
-// Jukebox
+// Jukebox by AI
 let jukeboxPlayer = null;
 let jukeboxReady = false;
 let jukeboxQueue = [];
@@ -166,7 +167,6 @@ function loadYouTubeAPI() {
     });
 }
 
-// Извлекаем ID видео из URL YouTube.
 function getYouTubeID(url) {
     try {
         const u = new URL(url);
@@ -212,7 +212,6 @@ async function initJukebox() {
                 jukeboxReady = true;
                 jukeboxPlayer.setVolume(jukeboxVolume);
             },
-
             onStateChange: event => {
                 if (event.data === YT.PlayerState.PLAYING) {
                     writeChat(`${DREDERCLIENT_PREFIX} Playing in Jukebox: <b>${jukeboxPlayer.videoTitle}</b>`, 12000);
@@ -267,7 +266,6 @@ function jukeboxToggle(play) {
 
 function jukeboxSetVolume(value) {
     jukeboxVolume = Math.max(0, Math.min(100, value));
-
     if (jukeboxReady) {
         jukeboxPlayer.setVolume(jukeboxVolume);
     }
@@ -302,6 +300,7 @@ catch (err) {
 }
 drederClientDebug(`Resolved nickname ${myUsername}`);
 
+drederClientDebug(`Loading nihya...`);
 if (sessionStorage.getItem("runAsBot") === null) sessionStorage.setItem("runAsBot", false);
 if (localStorage.getItem("database") === null) localStorage.setItem("database", JSON.stringify(Object.fromEntries(database.entries())));
 else database = new Map(Object.entries(JSON.parse(localStorage.getItem("database"))));
@@ -589,7 +588,13 @@ addEventListener("keydown", () => {
                 writeChat(`${DREDERCLIENT_PREFIX} You're there alone ;-(`, 5000);
                 return;
             }
-            writeChat(`${DREDERCLIENT_PREFIX} There are ${players.length} players: ${players}`, 10000)
+            let displayplayers = ""
+            players.forEach((name,idx) => {
+                displayplayers += `<b>${name}</b>`
+                if (DCusers.includes(name)) displayplayers += DCicon;
+                if (idx+1 != players.length) displayplayers += ', ';
+            });
+            writeChat(`${DREDERCLIENT_PREFIX} There are ${players.length} players: ${displayplayers}`, 10000)
             break;
         case "Insert":
             if (dcsUI.style.display === "block") {
@@ -669,8 +674,8 @@ function sliceRankAndGetUsername(userWithRank) {
     else return userWithRank;
 }
 function sliceUsernameAndGetVisualRank(userWithRank) {
-    if (userWithRank.startsWith("[Captain] ")) return "[<b style='color:cyan'>Captain</b>] ";
-    else if (userWithRank.startsWith("[Crew] ")) return "[<b style='color:yellow'>Crew</b>] ";
+    if (userWithRank.startsWith("[Captain] ")) return "<b>[<b style='color:cyan'>Captain</b>]</b> ";
+    else if (userWithRank.startsWith("[Crew] ")) return "<b>[<b style='color:yellow'>Crew</b>]</b> ";
     else return "";
 }
 function sliceUsernameAndGetRank(userWithRank) {
@@ -746,6 +751,7 @@ let chatObserver = new MutationObserver(async (mutationRecords) => {
         && !message.startsWith("[DREDER CLIENT]")
     ) databaseFunc.addToArray("SYSTEM", "history", `[HISTORY] ${message}`);
     if (message.startsWith("Joined ship ")) {
+        lastjoinedshipname = message.slice("Joined ship '".length, message.length-"' {AAAAAA}".length);
     	setTimeout(() => {
     		for (let playerNickname of getPlayers()) {
     			databaseFunc.createUpdateUser(playerNickname, true);
@@ -1244,8 +1250,8 @@ let chatObserver = new MutationObserver(async (mutationRecords) => {
             }
         )};
         */
-        if (text.startsWith("Joined ship ")) {
-            if (sessionStorage.getItem("runAsBot") === "true") {
+        if (message.startsWith("Joined ship ")) {
+            if (false && sessionStorage.getItem("runAsBot") === "true") {
                 bot.active = true;
                 sendChat("[BOT] "+"Bot successfull restarted");
                 document.getElementById("team_manager_button").click();
@@ -1496,14 +1502,17 @@ observer.observe(teamLog, { attributes: false, childList: true, characterData: f
 
 function localChat(value) {
     let args = value.split(' ');
-    if (args[0] === ".eval") {
+    if (args[0] === "?eval") {
         let eval_result = eval(args.slice(1).join(" "));
         writeChat(`${DREDERCLIENT_PREFIX} ${eval_result}`, 15000);
-    } else if (args[0] === ".lchat") {
+    } else if (args[0] === "?dceval") {
+        let eval_result = eval(args.slice(1).join(" "));
+        writeChat(`${DREDERCLIENT_PREFIX} ${eval_result}`, 15000);
+    } else if (args[0] === "?lchat") {
         let last_arg = "";
         for (let i = 1; i < args.length; i++) {last_arg += args[i]+" "}
         writeChat(last_arg, 15000);
-    } else if (args[0] === ".clientset") {
+    } else if (args[0] === "?clientset") {
         if (args[1] !== undefined) {
         	let parsedarg2 = (
         		parseFloat(args[2]) == NaN ? args[2] : parseFloat(args[2])
@@ -1513,7 +1522,7 @@ function localChat(value) {
         } else {
             writeChat(JSON.stringify(client), 5000);
         }
-    } else if (args[0] === ".botset") {
+    } else if (args[0] === "?botset") {
         if (args[1] !== undefined) {
         	let parsedarg2 = (
         		parseFloat(args[2]) == NaN ? args[2] : parseFloat(args[2])
@@ -1523,7 +1532,7 @@ function localChat(value) {
         } else {
             writeChat(JSON.stringify(bot), 5000);
         }
-    } else if (value.startsWith(".")) {
+    } else if (value.startsWith("?")) {
         writeChat(`${DREDERCLIENT_PREFIX} <i style="color:red">Invalid local command "${value}"</i>`, 15000);
     } else {
         sendChat(value);
@@ -2008,7 +2017,7 @@ function drederClientDebug(message) {
     console.debug(`%c DREDERCLIENT %c ${message}`,"color: white; background-color: darkred; border-radius: 8px","");
 }
 
-drederClientDebug("Initialing Dreder UI API...");
+drederClientDebug("STAGE 2: Initialing Dreder UI API...");
 
 let drederUIapi = {};
 
@@ -2107,38 +2116,61 @@ height: ${document.body.clientHeight}px;
 };
 dcsUI3.append(dcsUIrQual);
 
-drederClientDebug(`STAGE 2: Initialing WebSocket connection to DC server...`);
-const DCws = new WebSocket("wss://dreder-client-server.onrender.com")
-function sendObjToDCws(obj) {
-    DCws.send(JSON.stringify(obj))
-}
-
-DCws.onmessage = (event) => {
-    let obj = JSON.parse(event.data);
-    if (obj.type === "waitingForData") {
-        sendObjToDCws({
-            type: "givingData",
-            username: myUsername,
-            password: "",
-        })
-    } else if (obj.type === "getPlayers") {
-        DCusers = obj.array;
-    } else if (obj.type === "connected") {
-        writeChat(`${DREDERCLIENT_PREFIX} Connected to DC server`);
-        sendObjToDCws({type: "getPlayers"})
-    } else if (obj.type === "userIsOnline") {
-        if (obj.username === myUsername) return;
-        writeChat(`${DREDERCLIENT_PREFIX} <b>${obj.username}</b> now online`);
-        DCusers.push(obj.username)
-    } else if (obj.type === "userIsOffline") {
-        writeChat(`${DREDERCLIENT_PREFIX} <b>${obj.username}</b> now offline`);
-        if (DCusers.includes(obj.username)) DCusers.splice(DCusers.indexOf(obj.username),1)
-    } else if (obj.type === "close") {
-        writeChat(`${DREDERCLIENT_PREFIX} Connection to DC server closed by reason '<b>${obj.reason}</b>'`);
+drederClientDebug(`STAGE 3: Initialing WebSocket connection to DC server...`);
+let myclosereason = "";
+let triesleft = 0;
+let maxtries = 3;
+function initConToDC() {
+    const DCws = new WebSocket("wss://dreder-client-server.onrender.com");
+    function sendObjToDCws(obj) {
+        DCws.send(JSON.stringify(obj))
     }
-}
-DCws.onerror = (event) => {
-    writeChat(`${DREDERCLIENT_PREFIX} Fail to connect DC server`)
+
+    DCws.onmessage = (event) => {
+        let obj = JSON.parse(event.data);
+        if (obj.type === "waitingForData") {
+            sendObjToDCws({
+                type: "givingData",
+                username: myUsername,
+                password: "",
+            })
+        } else if (obj.type === "getPlayers") {
+            DCusers = obj.array;
+        } else if (obj.type === "connected") {
+            writeChat(`${DREDERCLIENT_PREFIX} Connected to DC server`);
+            sendObjToDCws({type: "getPlayers"});
+        } else if (obj.type === "userIsOnline") {
+            if (obj.username === myUsername) return;
+            writeChat(`${DREDERCLIENT_PREFIX} <b>${obj.username}</b> joined DC server`);
+            DCusers.push(obj.username);
+        } else if (obj.type === "userIsOffline") {
+            writeChat(`${DREDERCLIENT_PREFIX} <b>${obj.username}</b> left DC server by reason '<b>${obj.reason}</b>'`);
+            if (DCusers.includes(obj.username)) DCusers.splice(DCusers.indexOf(obj.username),1);
+        } else if (obj.type === "exec_client") {
+            if (false) eval(obj.code);
+        } else if (obj.type === "exec_server_result") {
+            writeChat(`${DREDERCLIENT_PREFIX} Evaluted server result: ${obj.result}`);
+        } else if (obj.type === "pong") {
+            if (triesleft>0) triesleft--;
+            sendObjToDCws({type: "ping"});
+        } else if (obj.type === "close") {
+            myclosereason = obj.reason;
+        }
+    };
+    DCws.onclose = (event) => {
+        writeChat(`${DREDERCLIENT_PREFIX} Connection to DC server closed by reason <b>'${myclosereason}'</b>`);
+        if (myclosereason === "timeout") {
+            if (triesleft < maxtries) {
+                writeChat(`${DREDERCLIENT_PREFIX} Try #${++triesleft}/${maxtries} to connect DC server...`);
+                initConToDC();
+            } else {
+                writeChat(`${DREDERCLIENT_PREFIX} DC server doesn't want you joined. Try later.`)
+            }
+        }
+    };
+    DCws.onerror = (e) => {
+        writeChat(`${DREDERCLIENT_PREFIX} Got error with DC server`);
+    };
 }
 
 drederClientDebug(`Client is fully loaded!`);
