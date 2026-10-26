@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Dreder Client
-// @namespace    http://tampermonkey.net/
-// @version      1.2.1
+// @namespace    https://github.com/Dredarker/dreder-client
+// @version      1.2.1.1
 // @description  Client for drednot.io
 // @author       Dreder
 // @match        https://drednot.io/*
@@ -542,7 +542,7 @@ addEventListener("keydown", () => {
         case "End":
             bot.active = !bot.active;
             writeChat(`${DREDERCLIENT_PREFIX} Bot ${bot.active ? "":"de"}activated.`, 4000);
-            sendChat("[BOT] "+bot.active ? "Bot activated. Say \"!help\" to get commands" : "Bot deactivated");
+            sendChat("[BOT] "+(bot.active ? "Bot activated. Say \"!help\" to get commands" : "Bot deactivated"));
             sessionStorage.setItem("runAsBot", bot.active);
             if (bot.active) start = new Date();
             document.getElementById("team_manager_button").click();
