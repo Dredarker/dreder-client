@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Dreder Client
 // @namespace    http://tampermonkey.net/
-// @version      1.2.0
+// @version      1.2.1
 // @description  Client for drednot.io
 // @author       Dreder
 // @match        https://drednot.io/*
@@ -2120,6 +2120,8 @@ drederClientDebug(`STAGE 3: Initialing WebSocket connection to DC server...`);
 let myclosereason = "";
 let triesleft = 0;
 let maxtries = 3;
+
+initConToDC()
 function initConToDC() {
     const DCws = new WebSocket("wss://dreder-client-server.onrender.com");
     function sendObjToDCws(obj) {
