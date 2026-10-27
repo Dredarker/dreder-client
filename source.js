@@ -755,8 +755,9 @@ let chatObserver = new MutationObserver(async (mutationRecords) => {
     ) databaseFunc.addToArray("SYSTEM", "history", `[HISTORY] ${message}`);
     if (message.startsWith("Joined ship ")) {
         lastjoinedshipname = message.slice("Joined ship '".length, message.length-(message.match(/{.*?}/g).at(-1).length+2));
-        lastjoinedshipid = message.match(/{.*?}/g).at(-1);
-        lastjoinedshipid = lastjoinedshipid.slice(1,lastjoinedshipid.length-1)
+        const shipIdMatches = message.match(/{([^{}]+)}/g);
+        lastjoinedshipid = shipIdMatches?.at(-1)?.slice(1, -1) || "";
+        updateVoiceRoom();
     	setTimeout(() => {
     		for (let playerNickname of getPlayers()) {
     			databaseFunc.createUpdateUser(playerNickname, true);
@@ -2137,6 +2138,282 @@ height: ${document.body.clientHeight}px;
 };
 dcsUI3.append(dcsUIrQual);
 
+
+/* Ship voice chat: WebRTC audio, with signaling through the existing DC WebSocket. */
+let DCws = null;
+let DCselfId = null;
+let currentVoiceRoom = null;
+let voicePeers = new Map();
+let voiceLocalStream = null;
+let voiceMicEnabled = false;
+let voiceSoundEnabled = true;
+
+const voicePanel = document.createElement("div");
+voicePanel.id = "dreder-voice-chat";
+voicePanel.style.cssText = [
+    "position:fixed", "right:14px", "bottom:14px", "z-index:2147483000",
+    "width:250px", "padding:10px", "box-sizing:border-box",
+    "background:rgba(18,22,28,.96)", "color:#f4f4f4",
+    "border:1px solid #59616d", "border-radius:8px",
+    "font:13px/1.4 Arial,sans-serif", "box-shadow:0 4px 18px #0008"
+].join(";");
+voicePanel.innerHTML = `
+    <div style="font-weight:700;font-size:14px;margin-bottom:5px">Dreder Voice</div>
+    <div id="dreder-voice-room" style="opacity:.85;margin-bottom:4px">Корабль: не определён</div>
+    <div id="dreder-voice-status" style="opacity:.85;margin-bottom:8px">Ожидание соединения…</div>
+    <div style="display:flex;gap:6px">
+        <button id="dreder-voice-mic" type="button" style="flex:1;cursor:pointer">Микрофон: выкл.</button>
+        <button id="dreder-voice-sound" type="button" style="flex:1;cursor:pointer">Звук: вкл.</button>
+    </div>
+    <div id="dreder-voice-users" style="margin-top:7px;max-height:100px;overflow:auto;overflow-wrap:anywhere"></div>
+`;
+document.body.appendChild(voicePanel);
+
+const voiceRoomLabel = voicePanel.querySelector("#dreder-voice-room");
+const voiceStatusLabel = voicePanel.querySelector("#dreder-voice-status");
+const voiceUsersLabel = voicePanel.querySelector("#dreder-voice-users");
+const voiceMicButton = voicePanel.querySelector("#dreder-voice-mic");
+const voiceSoundButton = voicePanel.querySelector("#dreder-voice-sound");
+
+function sendObjToDCws(object) {
+    if (DCws && DCws.readyState === WebSocket.OPEN) {
+        DCws.send(JSON.stringify(object));
+        return true;
+    }
+    return false;
+}
+
+function voiceIdIsOfferer(peerId) {
+    return String(DCselfId).localeCompare(String(peerId), undefined, { numeric: true }) < 0;
+}
+
+function updateVoiceUI() {
+    voiceRoomLabel.textContent = currentVoiceRoom
+        ? `Комната: ${currentVoiceRoom}`
+        : (lastjoinedshipid ? `Корабль ID: ${lastjoinedshipid}` : "Корабль: не определён");
+    voiceStatusLabel.textContent = !DCws || DCws.readyState !== WebSocket.OPEN
+        ? "Нет соединения с сервером"
+        : currentVoiceRoom
+            ? `В комнате: ${voicePeers.size + 1} игрок(ов)`
+            : "Ожидание ID корабля";
+    voiceMicButton.textContent = voiceMicEnabled ? "Микрофон: вкл." : "Микрофон: выкл.";
+    voiceMicButton.style.background = voiceMicEnabled ? "#b9f6ca" : "";
+    voiceSoundButton.textContent = voiceSoundEnabled ? "Звук: вкл." : "Звук: выкл.";
+    voiceUsersLabel.replaceChildren();
+    if (currentVoiceRoom) {
+        const self = document.createElement("div");
+        self.textContent = `• ${myUsername || "Вы"} (вы)`;
+        voiceUsersLabel.appendChild(self);
+        for (const [peerId, peer] of voicePeers) {
+            const line = document.createElement("div");
+            line.textContent = `• ${peer.nickname || `Игрок ${peerId}`}`;
+            voiceUsersLabel.appendChild(line);
+        }
+    }
+}
+
+function closeVoicePeer(peerId) {
+    const peer = voicePeers.get(String(peerId));
+    if (!peer) return;
+    try { peer.pc.ontrack = null; peer.pc.close(); } catch {}
+    try { peer.audio.pause(); peer.audio.srcObject = null; peer.audio.remove(); } catch {}
+    voicePeers.delete(String(peerId));
+    updateVoiceUI();
+}
+
+function closeAllVoicePeers() {
+    for (const peerId of [...voicePeers.keys()]) closeVoicePeer(peerId);
+}
+
+async function sendVoiceDescription(peerId, description) {
+    sendObjToDCws({
+        type: "voiceSignal",
+        target: String(peerId),
+        signal: { description },
+    });
+}
+
+async function createVoiceOffer(peerId, peer) {
+    if (!peer || peer.pc.signalingState !== "stable") return;
+    try {
+        const offer = await peer.pc.createOffer();
+        if (peer.pc.signalingState !== "stable") return;
+        await peer.pc.setLocalDescription(offer);
+        await sendVoiceDescription(peerId, peer.pc.localDescription);
+    } catch (error) {
+        console.warn("[Dreder Voice] Offer failed:", error);
+    }
+}
+
+function createVoicePeer(peerId, nickname = "") {
+    peerId = String(peerId);
+    if (peerId === String(DCselfId)) return null;
+    if (voicePeers.has(peerId)) {
+        const existing = voicePeers.get(peerId);
+        if (nickname) existing.nickname = nickname;
+        updateVoiceUI();
+        return existing;
+    }
+
+    const pc = new RTCPeerConnection({
+        iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+    });
+    const audio = document.createElement("audio");
+    audio.autoplay = true;
+    audio.playsInline = true;
+    audio.volume = voiceSoundEnabled ? 1 : 0;
+    audio.style.display = "none";
+    document.body.appendChild(audio);
+
+    const peer = { pc, audio, nickname, pendingCandidates: [] };
+    voicePeers.set(peerId, peer);
+
+    const transceiver = pc.addTransceiver("audio", { direction: "sendrecv" });
+    peer.transceiver = transceiver;
+    if (voiceLocalStream) {
+        transceiver.sender.replaceTrack(voiceLocalStream.getAudioTracks()[0] || null).catch(() => {});
+    }
+
+    pc.onicecandidate = event => {
+        if (event.candidate) {
+            sendObjToDCws({
+                type: "voiceSignal",
+                target: peerId,
+                signal: { candidate: event.candidate },
+            });
+        }
+    };
+
+    pc.ontrack = event => {
+        if (event.streams && event.streams[0]) {
+            audio.srcObject = event.streams[0];
+        } else {
+            const stream = audio.srcObject instanceof MediaStream
+                ? audio.srcObject : new MediaStream();
+            stream.addTrack(event.track);
+            audio.srcObject = stream;
+        }
+        audio.play().catch(() => {
+            voiceStatusLabel.textContent = "Нажми на страницу, чтобы разрешить воспроизведение звука";
+        });
+    };
+
+    pc.onconnectionstatechange = () => {
+        if (pc.connectionState === "failed" || pc.connectionState === "closed") {
+            closeVoicePeer(peerId);
+        }
+    };
+
+    if (voiceIdIsOfferer(peerId)) {
+        setTimeout(() => createVoiceOffer(peerId, peer), 0);
+    }
+    updateVoiceUI();
+    return peer;
+}
+
+async function flushVoiceCandidates(peer) {
+    for (const candidate of peer.pendingCandidates.splice(0)) {
+        try { await peer.pc.addIceCandidate(candidate); }
+        catch (error) { console.warn("[Dreder Voice] ICE candidate failed:", error); }
+    }
+}
+
+async function handleVoiceSignal(message) {
+    const peerId = String(message.from);
+    const signal = message.signal || {};
+    const peer = createVoicePeer(peerId);
+    if (!peer) return;
+
+    try {
+        if (signal.description) {
+            await peer.pc.setRemoteDescription(signal.description);
+            await flushVoiceCandidates(peer);
+            if (signal.description.type === "offer") {
+                const answer = await peer.pc.createAnswer();
+                await peer.pc.setLocalDescription(answer);
+                await sendVoiceDescription(peerId, peer.pc.localDescription);
+            }
+        } else if (signal.candidate) {
+            if (peer.pc.remoteDescription) {
+                await peer.pc.addIceCandidate(signal.candidate);
+            } else {
+                peer.pendingCandidates.push(signal.candidate);
+            }
+        }
+    } catch (error) {
+        console.warn("[Dreder Voice] Signaling failed:", error);
+    }
+}
+
+function updateVoiceRoom() {
+    if (!DCws || DCws.readyState !== WebSocket.OPEN || !DCselfId) {
+        updateVoiceUI();
+        return;
+    }
+
+    const shipId = String(lastjoinedshipid || "").trim();
+    if (!shipId) {
+        if (currentVoiceRoom) sendObjToDCws({ type: "voiceLeave" });
+        currentVoiceRoom = null;
+        closeAllVoicePeers();
+        updateVoiceUI();
+        return;
+    }
+
+    const nextRoom = `ship:${shipId}`;
+    if (nextRoom === currentVoiceRoom) return;
+
+    currentVoiceRoom = null;
+    closeAllVoicePeers();
+    currentVoiceRoom = nextRoom;
+    sendObjToDCws({ type: "voiceJoin", shipId });
+    updateVoiceUI();
+}
+
+voiceMicButton.addEventListener("click", async () => {
+    if (voiceMicEnabled) {
+        voiceMicEnabled = false;
+        if (voiceLocalStream) {
+            for (const track of voiceLocalStream.getAudioTracks()) track.enabled = false;
+        }
+        updateVoiceUI();
+        return;
+    }
+
+    try {
+        if (!navigator.mediaDevices?.getUserMedia) {
+            throw new Error("Браузер не поддерживает доступ к микрофону");
+        }
+        if (!voiceLocalStream) {
+            voiceLocalStream = await navigator.mediaDevices.getUserMedia({
+                audio: {
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    autoGainControl: true,
+                },
+                video: false,
+            });
+        }
+        for (const track of voiceLocalStream.getAudioTracks()) track.enabled = true;
+        for (const peer of voicePeers.values()) {
+            await peer.transceiver.sender.replaceTrack(voiceLocalStream.getAudioTracks()[0] || null);
+        }
+        voiceMicEnabled = true;
+        updateVoiceUI();
+    } catch (error) {
+        voiceStatusLabel.textContent = `Микрофон недоступен: ${error.message || error}`;
+        console.error("[Dreder Voice] Microphone error:", error);
+    }
+});
+
+voiceSoundButton.addEventListener("click", () => {
+    voiceSoundEnabled = !voiceSoundEnabled;
+    for (const peer of voicePeers.values()) peer.audio.volume = voiceSoundEnabled ? 1 : 0;
+    updateVoiceUI();
+});
+
+updateVoiceUI();
+
 drederClientDebug(`STAGE 3: Initialing WebSocket connection to DC server...`);
 let myclosereason = "";
 let triesleft = 0;
@@ -2144,12 +2421,10 @@ let maxtries = 3;
 
 initConToDC()
 function initConToDC() {
-    const DCws = new WebSocket("wss://dreder-client-server.onrender.com");
-    function sendObjToDCws(obj) {
-        DCws.send(JSON.stringify(obj))
-    }
-
+    DCws = new WebSocket("wss://dreder-client-server.onrender.com");
+    const socketForThisAttempt = DCws;
     DCws.onmessage = (event) => {
+        if (socketForThisAttempt !== DCws) return;
         let json = JSON.parse(event.data);
         if (json.type === "waitingForData") {
             sendObjToDCws({
@@ -2160,15 +2435,36 @@ function initConToDC() {
         } else if (json.type === "getPlayers") {
             DCusers = mapFromObj(json.players);
         } else if (json.type === "connected") {
+            DCselfId = String(json.id || "");
             writeChat(`${DREDERCLIENT_PREFIX} Connected to DC server`);
             sendObjToDCws({type: "getPlayers"});
+            updateVoiceRoom();
         } else if (json.type === "userIsOnline") {
             if (json.data.nickname === myUsername) return;
             DCusers.set(json.id, json.data);
             writeChat(`${DREDERCLIENT_PREFIX} <b>${json.data.nickname}</b> joined DC server`);
         } else if (json.type === "userIsOffline") {
-            DCusers.delete(json.id);
-            writeChat(`${DREDERCLIENT_PREFIX} <b>${DCusers.get(json.id).nickname}</b> left DC server by reason '<b>${json.reason}</b>'`);
+            const offlineUser = DCusers.get(String(json.id));
+            DCusers.delete(String(json.id));
+            if (offlineUser) {
+                writeChat(`${DREDERCLIENT_PREFIX} <b>${offlineUser.nickname}</b> left DC server by reason '<b>${json.reason}</b>'`);
+            }
+        } else if (json.type === "voiceRoomJoined") {
+            currentVoiceRoom = json.room;
+            closeAllVoicePeers();
+            for (const peer of (json.peers || [])) {
+                createVoicePeer(peer.id, peer.nickname);
+            }
+            updateVoiceUI();
+        } else if (json.type === "voicePeerJoined") {
+            createVoicePeer(json.id, json.nickname);
+            updateVoiceUI();
+        } else if (json.type === "voicePeerLeft") {
+            closeVoicePeer(json.id);
+        } else if (json.type === "voiceSignal") {
+            handleVoiceSignal(json);
+        } else if (json.type === "voiceError") {
+            voiceStatusLabel.textContent = `Ошибка голосового чата: ${json.reason}`;
         } else if (json.type === "exec_client") {
             if (false) eval(json.code); // мне нахуй нужна эта функция. я его сделал шоб троллить утку и тимку. чесна =(
         } else if (json.type === "exec_server_result") {
@@ -2181,6 +2477,11 @@ function initConToDC() {
         }
     };
     DCws.onclose = (event) => {
+        if (socketForThisAttempt !== DCws) return;
+        currentVoiceRoom = null;
+        DCselfId = null;
+        closeAllVoicePeers();
+        updateVoiceUI();
         writeChat(`${DREDERCLIENT_PREFIX} Connection to DC server closed by reason <b>'${myclosereason}'</b>`);
         if (myclosereason === "timeout") {
             if (triesleft < maxtries) {
@@ -2192,6 +2493,7 @@ function initConToDC() {
         }
     };
     DCws.onerror = (e) => {
+        if (socketForThisAttempt !== DCws) return;
         writeChat(`${DREDERCLIENT_PREFIX} Got error in connection to DC server`);
     };
 }
