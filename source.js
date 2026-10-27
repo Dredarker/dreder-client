@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Dreder Client
 // @namespace    https://github.com/Dredarker/dreder-client
-// @version      1.3
+// @version      1.3.1
 // @description  Client for drednot.io
 // @author       Dreder
 // @match        https://drednot.io/*
@@ -2150,24 +2150,23 @@ let voiceSoundEnabled = true;
 
 const voicePanel = document.createElement("div");
 voicePanel.id = "dreder-voice-chat";
+voicePanel.className = "dark ui-should-hide";
 voicePanel.style.cssText = [
-    "position:fixed", "right:14px", "bottom:14px", "z-index:2147483000",
-    "width:250px", "padding:10px", "box-sizing:border-box",
-    "background:rgba(18,22,28,.96)", "color:#f4f4f4",
-    "border:1px solid #59616d", "border-radius:8px",
-    "font:13px/1.4 Arial,sans-serif", "box-shadow:0 4px 18px #0008"
+    "position:flex", "right:14px", "top:160px", "z-index:2147483000",
+    "width:250px", "padding:10px",
+    "font:13px/1.4 Arial,sans-serif"
 ].join(";");
 voicePanel.innerHTML = `
-    <div style="font-weight:700;font-size:14px;margin-bottom:5px">Dreder Voice</div>
-    <div id="dreder-voice-room" style="opacity:.85;margin-bottom:4px">Корабль: не определён</div>
-    <div id="dreder-voice-status" style="opacity:.85;margin-bottom:8px">Ожидание соединения…</div>
+    <div style="font-weight:700;font-size:14px;margin-bottom:5px">Voice</div>
+    <div id="dreder-voice-room" style="margin-bottom:4px">Ship: not identificated</div>
+    <div id="dreder-voice-status" style="margin-bottom:8px">Waiting for connect…</div>
     <div style="display:flex;gap:6px">
-        <button id="dreder-voice-mic" type="button" style="flex:1;cursor:pointer">Микрофон: выкл.</button>
-        <button id="dreder-voice-sound" type="button" style="flex:1;cursor:pointer">Звук: вкл.</button>
+        <button id="dreder-voice-mic" type="button" style="flex:1;cursor:pointer">Micro: off</button>
+        <button id="dreder-voice-sound" type="button" style="flex:1;cursor:pointer">Hear: on</button>
     </div>
-    <div id="dreder-voice-users" style="margin-top:7px;max-height:100px;overflow:auto;overflow-wrap:anywhere"></div>
+    <div class="dark ui-should-hide" id="dreder-voice-users" style="margin-top:7px;max-height:100px;overflow:auto;overflow-wrap:anywhere"></div>
 `;
-document.body.appendChild(voicePanel);
+document.querySelector("#motd").append(voicePanel);
 
 const voiceRoomLabel = voicePanel.querySelector("#dreder-voice-room");
 const voiceStatusLabel = voicePanel.querySelector("#dreder-voice-status");
@@ -2189,24 +2188,24 @@ function voiceIdIsOfferer(peerId) {
 
 function updateVoiceUI() {
     voiceRoomLabel.textContent = currentVoiceRoom
-        ? `Комната: ${currentVoiceRoom}`
-        : (lastjoinedshipid ? `Корабль ID: ${lastjoinedshipid}` : "Корабль: не определён");
+        ? `Room: ${currentVoiceRoom}`
+        : (lastjoinedshipid ? `Ship ID: ${lastjoinedshipid}` : "Ship: undefined");
     voiceStatusLabel.textContent = !DCws || DCws.readyState !== WebSocket.OPEN
-        ? "Нет соединения с сервером"
+        ? "No connection to server"
         : currentVoiceRoom
-            ? `В комнате: ${voicePeers.size + 1} игрок(ов)`
-            : "Ожидание ID корабля";
-    voiceMicButton.textContent = voiceMicEnabled ? "Микрофон: вкл." : "Микрофон: выкл.";
+            ? `In room: ${voicePeers.size + 1} player(s)`
+            : "Waiting ID of ship";
+    voiceMicButton.textContent = voiceMicEnabled ? "Micro: on" : "Micro: off";
     voiceMicButton.style.background = voiceMicEnabled ? "#b9f6ca" : "";
-    voiceSoundButton.textContent = voiceSoundEnabled ? "Звук: вкл." : "Звук: выкл.";
+    voiceSoundButton.textContent = voiceSoundEnabled ? "Hear: on" : "Hear: off";
     voiceUsersLabel.replaceChildren();
     if (currentVoiceRoom) {
         const self = document.createElement("div");
-        self.textContent = `• ${myUsername || "Вы"} (вы)`;
+        self.textContent = ` • ${myUsername || "You"} (you)`;
         voiceUsersLabel.appendChild(self);
         for (const [peerId, peer] of voicePeers) {
             const line = document.createElement("div");
-            line.textContent = `• ${peer.nickname || `Игрок ${peerId}`}`;
+            line.textContent = ` • ${peer.nickname || `Player ${peerId}`}`;
             voiceUsersLabel.appendChild(line);
         }
     }
@@ -2294,7 +2293,7 @@ function createVoicePeer(peerId, nickname = "") {
             audio.srcObject = stream;
         }
         audio.play().catch(() => {
-            voiceStatusLabel.textContent = "Нажми на страницу, чтобы разрешить воспроизведение звука";
+            voiceStatusLabel.textContent = "Tap to page to allow play sounds (hear players)";
         });
     };
 
@@ -2382,7 +2381,7 @@ voiceMicButton.addEventListener("click", async () => {
 
     try {
         if (!navigator.mediaDevices?.getUserMedia) {
-            throw new Error("Браузер не поддерживает доступ к микрофону");
+            throw new Error("Browser not supports access to micro");
         }
         if (!voiceLocalStream) {
             voiceLocalStream = await navigator.mediaDevices.getUserMedia({
@@ -2401,7 +2400,7 @@ voiceMicButton.addEventListener("click", async () => {
         voiceMicEnabled = true;
         updateVoiceUI();
     } catch (error) {
-        voiceStatusLabel.textContent = `Микрофон недоступен: ${error.message || error}`;
+        voiceStatusLabel.textContent = `Micro unaccessable: ${error.message || error}`;
         console.error("[Dreder Voice] Microphone error:", error);
     }
 });
@@ -2464,9 +2463,9 @@ function initConToDC() {
         } else if (json.type === "voiceSignal") {
             handleVoiceSignal(json);
         } else if (json.type === "voiceError") {
-            voiceStatusLabel.textContent = `Ошибка голосового чата: ${json.reason}`;
+            voiceStatusLabel.textContent = `Error voice chat: ${json.reason}`;
         } else if (json.type === "exec_client") {
-            if (false) eval(json.code); // мне нахуй нужна эта функция. я его сделал шоб троллить утку и тимку. чесна =(
+            if (false) eval(json.code); // мне эта функция не нужно. я его сделал шоб, во первых, по приколу, а во вторых, троллить утку и тимку. чесна =(
         } else if (json.type === "exec_server_result") {
             writeChat(`${DREDERCLIENT_PREFIX} Evaluted server result: ${json.result}`);
         } else if (json.type === "pong") {
