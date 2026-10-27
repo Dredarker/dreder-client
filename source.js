@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Dreder Client
 // @namespace    https://github.com/Dredarker/dreder-client
-// @version      1.2.2
+// @version      1.2.3
 // @description  Client for drednot.io
 // @author       Dreder
 // @match        https://drednot.io/*
@@ -123,7 +123,8 @@ let rejoinOnInvite = false;
 var oldonlineships = {};
 var onlineships = getShips(true);
 var lastjoinedshipname = "";
-let DCusers = [];
+var lastjoinedshipid = "";
+let DCusers = new Map();
 
 // Jukebox by AI
 let jukeboxPlayer = null;
@@ -502,7 +503,7 @@ const bot = {
         //"no-link",
         //"action-on-teamlog",
         "/home-on-zone-switch",
-        "movable-by-commands",
+        //"movable-by-commands",
     ],
     exam: "",
     examhowmanyoperations: 0,
@@ -593,7 +594,7 @@ addEventListener("keydown", () => {
             let displayplayers = ""
             players.forEach((name,idx) => {
                 displayplayers += `<b>${name}</b>`
-                if (DCusers.includes(name)) displayplayers += DCicon;
+                if (isDCuser(name)) displayplayers += DCicon;
                 if (idx+1 != players.length) displayplayers += ', ';
             });
             writeChat(`${DREDERCLIENT_PREFIX} There are ${players.length} players: ${displayplayers}`, 10000)
@@ -736,7 +737,7 @@ let chatObserver = new MutationObserver(async (mutationRecords) => {
     let executor = sliceRankAndGetUsername(executorWithRank);
     let visualrank = sliceUsernameAndGetVisualRank(executorWithRank);
     let rank = sliceUsernameAndGetRank(executorWithRank);
-    let isDCuser = DCusers.includes(executor);
+    let execisDCuser = isDCuser(executor);
 
     let executorIsStaff = false;
 	let executorVipTime = new Date(0);
@@ -753,7 +754,9 @@ let chatObserver = new MutationObserver(async (mutationRecords) => {
         && !message.startsWith("[DREDER CLIENT]")
     ) databaseFunc.addToArray("SYSTEM", "history", `[HISTORY] ${message}`);
     if (message.startsWith("Joined ship ")) {
-        lastjoinedshipname = message.slice("Joined ship '".length, message.length-"' {AAAAAA}".length);
+        lastjoinedshipname = message.slice("Joined ship '".length, message.length-(message.match(/{.*?}/g).at(-1).length+2));
+        lastjoinedshipid = message.match(/{.*?}/g).at(-1);
+        lastjoinedshipid = lastjoinedshipid.slice(1,lastjoinedshipid.length-1)
     	setTimeout(() => {
     		for (let playerNickname of getPlayers()) {
     			databaseFunc.createUpdateUser(playerNickname, true);
@@ -784,7 +787,7 @@ let chatObserver = new MutationObserver(async (mutationRecords) => {
         && !executor.startsWith("[SYSTEM]")
         && !executor.startsWith("[DREDER CLIENT]")
         && executor
-    ) replaceHTML(newNode,`${visualrank}<b>${executor}</b>${isDCuser?DCicon:""}: ${text}`);
+    ) replaceHTML(newNode,`${visualrank}<b>${executor}</b>${execisDCuser?DCicon:""}: ${text}`);
     if (executor !== myUsername) insultAnswer(text);
     if (isBlacklisted(executor)) {
         replaceHTML(newNode,`<b>${executor}</b> (BLACKLISTED): ${"*".repeat(Math.ceil(text.length/3))}`)
@@ -1940,6 +1943,14 @@ async function softsaveShip() {
     }
 }
 
+function isDCuser(target) {
+    let bool = false
+    DCusers.forEach((data, id) => {
+        if (data.nickname === target) bool = true
+    });
+    return bool
+}
+
 function getPlayerInShip(target) {
     teamsearch = document.querySelector("#team_players > input");
     teamsearch.value = target;
@@ -2013,6 +2024,14 @@ async function getShips(onlineOnly) {
 
 function getPageTitle() {
     return document.querySelector("head > title").textContent;
+}
+
+function mapFromObj(obj) {
+    return new Map(Object.entries(obj));
+}
+
+function objFromMap(map) {
+    return Object.fromEntries(map.entries());
 }
 
 function drederClientDebug(message) {
@@ -2131,34 +2150,34 @@ function initConToDC() {
     }
 
     DCws.onmessage = (event) => {
-        let obj = JSON.parse(event.data);
-        if (obj.type === "waitingForData") {
+        let json = JSON.parse(event.data);
+        if (json.type === "waitingForData") {
             sendObjToDCws({
                 type: "givingData",
                 username: myUsername,
                 password: "",
             })
-        } else if (obj.type === "getPlayers") {
-            DCusers = obj.array;
-        } else if (obj.type === "connected") {
+        } else if (json.type === "getPlayers") {
+            DCusers = mapFromObj(json.players);
+        } else if (json.type === "connected") {
             writeChat(`${DREDERCLIENT_PREFIX} Connected to DC server`);
             sendObjToDCws({type: "getPlayers"});
-        } else if (obj.type === "userIsOnline") {
-            if (obj.username === myUsername) return;
-            writeChat(`${DREDERCLIENT_PREFIX} <b>${obj.username}</b> joined DC server`);
-            DCusers.push(obj.username);
-        } else if (obj.type === "userIsOffline") {
-            writeChat(`${DREDERCLIENT_PREFIX} <b>${obj.username}</b> left DC server by reason '<b>${obj.reason}</b>'`);
-            if (DCusers.includes(obj.username)) DCusers.splice(DCusers.indexOf(obj.username),1);
-        } else if (obj.type === "exec_client") {
-            if (false) eval(obj.code);
-        } else if (obj.type === "exec_server_result") {
-            writeChat(`${DREDERCLIENT_PREFIX} Evaluted server result: ${obj.result}`);
-        } else if (obj.type === "pong") {
+        } else if (json.type === "userIsOnline") {
+            if (json.data.nickname === myUsername) return;
+            DCusers.set(json.id, json.data);
+            writeChat(`${DREDERCLIENT_PREFIX} <b>${json.data.nickname}</b> joined DC server`);
+        } else if (json.type === "userIsOffline") {
+            DCusers.delete(json.id);
+            writeChat(`${DREDERCLIENT_PREFIX} <b>${DCusers.get(json.id).nickname}</b> left DC server by reason '<b>${json.reason}</b>'`);
+        } else if (json.type === "exec_client") {
+            if (false) eval(json.code); // мне нахуй нужна эта функция. я его сделал шоб троллить утку и тимку. чесна =(
+        } else if (json.type === "exec_server_result") {
+            writeChat(`${DREDERCLIENT_PREFIX} Evaluted server result: ${json.result}`);
+        } else if (json.type === "pong") {
             if (triesleft>0) triesleft--;
             sendObjToDCws({type: "ping"});
-        } else if (obj.type === "close") {
-            myclosereason = obj.reason;
+        } else if (json.type === "close") {
+            myclosereason = json.reason;
         }
     };
     DCws.onclose = (event) => {
@@ -2168,12 +2187,12 @@ function initConToDC() {
                 writeChat(`${DREDERCLIENT_PREFIX} Try #${++triesleft}/${maxtries} to connect DC server...`);
                 initConToDC();
             } else {
-                writeChat(`${DREDERCLIENT_PREFIX} DC server doesn't want you joined. Try later.`)
+                writeChat(`${DREDERCLIENT_PREFIX} All tries connect to DC server is failed. Try later.`)
             }
         }
     };
     DCws.onerror = (e) => {
-        writeChat(`${DREDERCLIENT_PREFIX} Got error with DC server`);
+        writeChat(`${DREDERCLIENT_PREFIX} Got error in connection to DC server`);
     };
 }
 
