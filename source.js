@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Dreder Client
 // @namespace    https://github.com/Dredarker/dreder-client
-// @version      1.2.3
+// @version      1.3
 // @description  Client for drednot.io
 // @author       Dreder
 // @match        https://drednot.io/*
